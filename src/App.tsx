@@ -1,189 +1,232 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { ChevronUp } from 'lucide-react';
-import { Button } from './components/ui/button';
-import { Toaster } from 'sonner@2.0.3';
+import { useEffect, useState } from 'react';
 
-// Import critical components immediately
-import Header from './components/Header';
-import Hero from './components/Hero';
-import LoadingSpinner from './components/LoadingSpinner';
+type Operator = '+' | '−' | '×' | '÷';
 
-// Lazy load non-critical components
-const ProductsSection = lazy(() => import('./components/ProductsSection'));
-const ServicesSection = lazy(() => import('./components/ServicesSection'));
-const WhyChooseUs = lazy(() => import('./components/WhyChooseUs'));
-const FAQ = lazy(() => import('./components/FAQ'));
-const ContactCTA = lazy(() => import('./components/ContactCTA'));
-const Footer = lazy(() => import('./components/Footer'));
-const ContactModal = lazy(() => import('./components/ContactModal'));
-const ProductModal = lazy(() => import('./components/ProductModal'));
-const WhatsAppChat = lazy(() => import('./components/WhatsAppChat'));
+type CalcButton = {
+  label: string;
+  className?: string;
+  action: () => void;
+};
+
+const formatDisplay = (value: string) => {
+  const numeric = Number(value);
+
+  if (!Number.isFinite(numeric)) {
+    return 'Erro';
+  }
+
+  return new Intl.NumberFormat('pt-BR', {
+    maximumFractionDigits: 10,
+  }).format(numeric);
+};
+
+const operate = (left: number, right: number, operator: Operator) => {
+  switch (operator) {
+    case '+':
+      return left + right;
+    case '−':
+      return left - right;
+    case '×':
+      return left * right;
+    case '÷':
+      if (right === 0) {
+        return Number.NaN;
+      }
+      return left / right;
+    default:
+      return right;
+  }
+};
 
 export default function App() {
-  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState(null);
-  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [display, setDisplay] = useState('0');
+  const [storedValue, setStoredValue] = useState<number | null>(null);
+  const [operator, setOperator] = useState<Operator | null>(null);
+  const [history, setHistory] = useState('');
+  const [replaceDisplay, setReplaceDisplay] = useState(false);
 
-  // Performance optimization: preload critical resources
-  useEffect(() => {
-    const preloadLink = document.createElement('link');
-    preloadLink.rel = 'preload';
-    preloadLink.as = 'image';
-    preloadLink.href = 'https://images.unsplash.com/photo-1581094794329-c8112a89af12?w=800&h=600&fit=crop&auto=format&q=75';
-    document.head.appendChild(preloadLink);
-
-    return () => {
-      document.head.removeChild(preloadLink);
-    };
-  }, []);
-
-  // Handle scroll to show scroll-to-top button
-  useEffect(() => {
-    const handleScroll = () => {
-      setShowScrollTop(window.scrollY > 500);
-    };
-
-    // Throttle scroll events for better performance
-    let ticking = false;
-    const throttledHandleScroll = () => {
-      if (!ticking) {
-        requestAnimationFrame(() => {
-          handleScroll();
-          ticking = false;
-        });
-        ticking = true;
-      }
-    };
-
-    window.addEventListener('scroll', throttledHandleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', throttledHandleScroll);
-  }, []);
-
-  // Smooth scroll to top
-  const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  // Smooth scroll to section with error handling
-  const scrollToSection = (sectionId: string) => {
-    try {
-      const element = document.getElementById(sectionId);
-      if (element) {
-        const headerHeight = 120; // Account for fixed header
-        const elementPosition = element.offsetTop - headerHeight;
-        window.scrollTo({
-          top: elementPosition,
-          behavior: 'smooth'
-        });
-      }
-    } catch (error) {
-      console.warn('Error scrolling to section:', error);
+  const appendNumber = (value: string) => {
+    if (replaceDisplay) {
+      setDisplay(value);
+      setReplaceDisplay(false);
+      return;
     }
+
+    setDisplay((previous) => (previous === '0' ? value : previous + value));
   };
+
+  const appendDecimal = () => {
+    if (replaceDisplay) {
+      setDisplay('0.');
+      setReplaceDisplay(false);
+      return;
+    }
+
+    setDisplay((previous) => (previous.includes('.') ? previous : `${previous}.`));
+  };
+
+  const clearAll = () => {
+    setDisplay('0');
+    setStoredValue(null);
+    setOperator(null);
+    setHistory('');
+    setReplaceDisplay(false);
+  };
+
+  const toggleSign = () => {
+    setDisplay((previous) => {
+      if (previous === '0') {
+        return previous;
+      }
+
+      return previous.startsWith('-') ? previous.slice(1) : `-${previous}`;
+    });
+  };
+
+  const applyPercentage = () => {
+    setDisplay((previous) => String(Number(previous) / 100));
+  };
+
+  const chooseOperator = (nextOperator: Operator) => {
+    const currentValue = Number(display);
+
+    if (storedValue !== null && operator && !replaceDisplay) {
+      const result = operate(storedValue, currentValue, operator);
+      setStoredValue(result);
+      setDisplay(String(result));
+      setHistory(`${formatDisplay(String(result))} ${nextOperator}`);
+    } else {
+      setStoredValue(currentValue);
+      setHistory(`${formatDisplay(display)} ${nextOperator}`);
+    }
+
+    setOperator(nextOperator);
+    setReplaceDisplay(true);
+  };
+
+  const calculate = () => {
+    if (storedValue === null || !operator) {
+      return;
+    }
+
+    const currentValue = Number(display);
+    const result = operate(storedValue, currentValue, operator);
+
+    setHistory(`${formatDisplay(String(storedValue))} ${operator} ${formatDisplay(display)} =`);
+    setDisplay(String(result));
+    setStoredValue(null);
+    setOperator(null);
+    setReplaceDisplay(true);
+  };
+
+  const handleBackspace = () => {
+    if (replaceDisplay) {
+      return;
+    }
+
+    setDisplay((previous) => {
+      if (previous.length <= 1 || (previous.length === 2 && previous.startsWith('-'))) {
+        return '0';
+      }
+
+      return previous.slice(0, -1);
+    });
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (/^[0-9]$/.test(event.key)) {
+        appendNumber(event.key);
+      }
+
+      if (event.key === '.') {
+        appendDecimal();
+      }
+
+      if (event.key === '+') {
+        chooseOperator('+');
+      }
+
+      if (event.key === '-') {
+        chooseOperator('−');
+      }
+
+      if (event.key === '*') {
+        chooseOperator('×');
+      }
+
+      if (event.key === '/') {
+        event.preventDefault();
+        chooseOperator('÷');
+      }
+
+      if (event.key === 'Enter' || event.key === '=') {
+        event.preventDefault();
+        calculate();
+      }
+
+      if (event.key === 'Backspace') {
+        handleBackspace();
+      }
+
+      if (event.key.toLowerCase() === 'c') {
+        clearAll();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  });
+
+  const buttons: CalcButton[] = [
+    { label: 'AC', className: 'bg-zinc-700 hover:bg-zinc-600', action: clearAll },
+    { label: '+/-', className: 'bg-zinc-700 hover:bg-zinc-600', action: toggleSign },
+    { label: '%', className: 'bg-zinc-700 hover:bg-zinc-600', action: applyPercentage },
+    { label: '÷', className: 'bg-sky-500 hover:bg-sky-400', action: () => chooseOperator('÷') },
+
+    { label: '7', action: () => appendNumber('7') },
+    { label: '8', action: () => appendNumber('8') },
+    { label: '9', action: () => appendNumber('9') },
+    { label: '×', className: 'bg-sky-500 hover:bg-sky-400', action: () => chooseOperator('×') },
+
+    { label: '4', action: () => appendNumber('4') },
+    { label: '5', action: () => appendNumber('5') },
+    { label: '6', action: () => appendNumber('6') },
+    { label: '−', className: 'bg-sky-500 hover:bg-sky-400', action: () => chooseOperator('−') },
+
+    { label: '1', action: () => appendNumber('1') },
+    { label: '2', action: () => appendNumber('2') },
+    { label: '3', action: () => appendNumber('3') },
+    { label: '+', className: 'bg-sky-500 hover:bg-sky-400', action: () => chooseOperator('+') },
+
+    { label: '⌫', className: 'bg-zinc-700 hover:bg-zinc-600', action: handleBackspace },
+    { label: '0', action: () => appendNumber('0') },
+    { label: ',', action: appendDecimal },
+    { label: '=', className: 'bg-sky-500 hover:bg-sky-400', action: calculate },
+  ];
 
   return (
-    <div className="min-h-screen bg-white" style={{ willChange: 'auto' }}>
-      {/* Header */}
-      <Header 
-        onContactClick={() => setIsContactModalOpen(true)}
-        onNavigate={scrollToSection}
-      />
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-zinc-950 to-zinc-900 px-4 text-white">
+      <div className="w-full max-w-sm rounded-3xl border border-zinc-700 bg-zinc-900/95 p-5 shadow-2xl shadow-black/40 backdrop-blur">
+        <div className="mb-6">
+          <p className="mb-2 text-xs uppercase tracking-[0.24em] text-zinc-400">Calculadora - Windows 11</p>
+          <p className="min-h-6 text-right text-sm text-zinc-400">{history || 'Pronto para calcular'}</p>
+          <p className="mt-2 truncate text-right text-5xl font-light">{formatDisplay(display)}</p>
+        </div>
 
-      {/* Main Content */}
-      <main>
-        {/* Hero Section */}
-        <section id="inicio">
-          <Hero onContactClick={() => setIsContactModalOpen(true)} />
-        </section>
-
-        {/* Lazy loaded sections with fallback */}
-        <Suspense fallback={<LoadingSpinner />}>
-          {/* Products Section */}
-          <section id="produtos">
-            <ProductsSection onProductClick={setSelectedProduct} />
-          </section>
-
-          {/* Services Section */}
-          <section id="servicos">
-            <ServicesSection />
-          </section>
-
-          {/* Why Choose Us Section */}
-          <section id="sobre">
-            <WhyChooseUs />
-          </section>
-
-          {/* FAQ Section */}
-          <section id="faq">
-            <FAQ />
-          </section>
-
-          {/* Contact CTA Section */}
-          <section id="contato">
-            <ContactCTA onContactClick={() => setIsContactModalOpen(true)} />
-          </section>
-        </Suspense>
-      </main>
-
-      {/* Footer */}
-      <Suspense fallback={<div className="h-32 bg-gray-100"></div>}>
-        <Footer onNavigate={scrollToSection} />
-      </Suspense>
-
-      {/* Modals - Only render when needed */}
-      <Suspense fallback={null}>
-        {isContactModalOpen && (
-          <ContactModal
-            isOpen={isContactModalOpen}
-            onClose={() => setIsContactModalOpen(false)}
-          />
-        )}
-
-        {selectedProduct && (
-          <ProductModal
-            product={selectedProduct}
-            isOpen={!!selectedProduct}
-            onClose={() => setSelectedProduct(null)}
-          />
-        )}
-
-        {/* WhatsApp Chat */}
-        <WhatsAppChat />
-      </Suspense>
-
-      {/* Scroll to Top Button */}
-      <AnimatePresence>
-        {showScrollTop && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8 }}
-            className="fixed bottom-6 right-6 z-50"
-          >
-            <Button
-              onClick={scrollToTop}
-              size="icon"
-              className="rounded-full shadow-lg bg-blue-500 hover:bg-blue-600 text-white"
+        <div className="grid grid-cols-4 gap-3">
+          {buttons.map((button) => (
+            <button
+              key={button.label}
+              onClick={button.action}
+              className={`rounded-2xl bg-zinc-800 py-4 text-lg font-medium transition active:scale-95 ${button.className || 'hover:bg-zinc-700'}`}
+              type="button"
             >
-              <ChevronUp className="size-5" />
-            </Button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Toast Notifications */}
-      <Toaster 
-        position="top-right"
-        toastOptions={{
-          duration: 4000,
-          style: {
-            background: 'white',
-            color: '#374151',
-            border: '1px solid #e5e7eb',
-          },
-        }}
-      />
+              {button.label}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
